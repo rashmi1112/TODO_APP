@@ -6,6 +6,17 @@ interface Todo {
   id: number;
   text: string;
   completed: boolean;
+  createdAt: Date;
+}
+
+function formatDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function Home() {
@@ -15,7 +26,7 @@ export default function Home() {
   const addTodo = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    setTodos([...todos, { id: Date.now(), text: trimmed, completed: false }]);
+    setTodos([...todos, { id: Date.now(), text: trimmed, completed: false, createdAt: new Date() }]);
     setInput("");
   };
 
@@ -87,13 +98,18 @@ export default function Home() {
                   </svg>
                 )}
               </button>
-              <span
-                className={`flex-1 text-sm ${
-                  todo.completed ? "line-through text-gray-300" : "text-gray-700"
-                }`}
-              >
-                {todo.text}
-              </span>
+              <div className="flex-1 min-w-0">
+                <span
+                  className={`block text-sm ${
+                    todo.completed ? "line-through text-gray-300" : "text-gray-700"
+                  }`}
+                >
+                  {todo.text}
+                </span>
+                <span className="text-xs text-gray-300">
+                  Added {formatDate(todo.createdAt)}
+                </span>
+              </div>
               <button
                 onClick={() => deleteTodo(todo.id)}
                 className="text-gray-200 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
