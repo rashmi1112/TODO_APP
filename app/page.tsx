@@ -2,11 +2,35 @@
 
 import { useState } from "react";
 
+const QUOTES = [
+  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { text: "You don't have to be great to start, but you have to start to be great.", author: "Zig Ziglar" },
+  { text: "Action is the foundational key to all success.", author: "Pablo Picasso" },
+  { text: "Do something today that your future self will thank you for.", author: "Sean Patrick Flanery" },
+  { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+  { text: "Small daily improvements over time lead to stunning results.", author: "Robin Sharma" },
+  { text: "Focus on being productive instead of busy.", author: "Tim Ferriss" },
+  { text: "You are capable of more than you know.", author: "E. O. Wilson" },
+  { text: "Done is better than perfect.", author: "Sheryl Sandberg" },
+  { text: "Push yourself, because no one else is going to do it for you.", author: "Unknown" },
+  { text: "Great things are done by a series of small things brought together.", author: "Vincent Van Gogh" },
+  { text: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+];
+
 interface Todo {
   id: number;
   text: string;
   completed: boolean;
   createdAt: Date;
+}
+
+function isToday(date: Date): boolean {
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
 }
 
 function formatDate(date: Date): string {
@@ -19,35 +43,117 @@ function formatDate(date: Date): string {
   });
 }
 
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const MAX_UNDO = 10;
+
 export default function Home() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [input, setInput] = useState("");
+  const [undoStack, setUndoStack] = useState<Todo[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [quote] = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+
+  // ---------- helpers ----------
+
+  const pushUndo = (task: Todo) => {
+    setUndoStack((prev) => [task, ...prev].slice(0, MAX_UNDO));
+  };
+
+  // Restore a specific task by id (from history panel or undo)
+  const restoreTask = (task: Todo) => {
+    setUndoStack((prev) => prev.filter((t) => t.id !== task.id));
+    setTodos((prev) => [...prev, { ...task, completed: false }]);
+  };
+
+  // ---------- actions ----------
 
   const addTodo = () => {
     const trimmed = input.trim();
     if (!trimmed) return;
-    setTodos([...todos, { id: Date.now(), text: trimmed, completed: false, createdAt: new Date() }]);
+    setTodos((prev) => [
+      ...prev,
+      { id: Date.now(), text: trimmed, completed: false, createdAt: new Date() },
+    ]);
     setInput("");
   };
 
   const toggleTodo = (id: number) => {
-    setTodos(todos.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)));
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)));
   };
 
   const deleteTodo = (id: number) => {
-    setTodos(todos.filter((t) => t.id !== id));
+    const task = todos.find((t) => t.id === id);
+    if (task) pushUndo(task);
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const clearCompleted = () => {
+    const completed = todos.filter((t) => t.completed);
+    // Push each task individually so undo pops them one at a time
+    completed.forEach((t) => pushUndo(t));
+    setTodos((prev) => prev.filter((t) => !t.completed));
+  };
+
+  // Undo: restore only the single most recently removed task
+  const undo = () => {
+    if (!undoStack.length) return;
+    const [latest, ...rest] = undoStack;
+    setTodos((prev) => [...prev, { ...latest, completed: false }]);
+    setUndoStack(rest);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") addTodo();
   };
 
+  // ---------- derived ----------
+
   const remaining = todos.filter((t) => !t.completed).length;
+  const hasCompleted = todos.some((t) => t.completed);
+  const canUndo = undoStack.length > 0;
+
+  // Today's history: all tasks created today, both active and removed
+  const removedTodayIds = new Set(undoStack.filter((t) => isToday(t.createdAt)).map((t) => t.id));
+  const activeTodayIds = new Set(todos.filter((t) => isToday(t.createdAt)).map((t) => t.id));
+
+  const allTodayTasks = [
+    ...todos.filter((t) => isToday(t.createdAt)),
+    ...undoStack.filter((t) => isToday(t.createdAt) && !activeTodayIds.has(t.id)),
+  ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  // ---------- render ----------
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
-        <h1 className="text-3xl font-bold text-indigo-600 mb-2">My To-Do List</h1>
+    <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 flex flex-col items-center justify-center p-4 gap-6">
+
+      {/* Motivational quote — floats above the card */}
+      <div className="w-full max-w-md text-center px-2">
+        <p className="text-base text-indigo-500 italic">"{quote.text}"</p>
+        <p className="text-xs text-indigo-300 mt-1">— {quote.author}</p>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 relative">
+
+        {/* Header */}
+        <div className="flex items-start justify-between mb-2">
+          <h1 className="text-3xl font-bold text-indigo-600">Things To-do</h1>
+          <button
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-1.5 text-xs font-medium text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors mt-1"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Today's History
+          </button>
+        </div>
+
         <p className="text-sm text-gray-400 mb-6">
           {todos.length === 0
             ? "No tasks yet — add one below!"
@@ -62,7 +168,7 @@ export default function Home() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="What needs to be done?"
-            className="flex-1 border border-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            className="flex-1 border border-gray-200 rounded-lg px-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
           <button
             onClick={addTodo}
@@ -99,16 +205,10 @@ export default function Home() {
                 )}
               </button>
               <div className="flex-1 min-w-0">
-                <span
-                  className={`block text-sm ${
-                    todo.completed ? "line-through text-gray-300" : "text-gray-700"
-                  }`}
-                >
+                <span className={`block text-sm ${todo.completed ? "line-through text-gray-300" : "text-gray-700"}`}>
                   {todo.text}
                 </span>
-                <span className="text-xs text-gray-300">
-                  Added {formatDate(todo.createdAt)}
-                </span>
+                <span className="text-xs text-gray-300">Added {formatDate(todo.createdAt)}</span>
               </div>
               <button
                 onClick={() => deleteTodo(todo.id)}
@@ -123,16 +223,124 @@ export default function Home() {
           ))}
         </ul>
 
-        {/* Clear completed */}
-        {todos.some((t) => t.completed) && (
-          <button
-            onClick={() => setTodos(todos.filter((t) => !t.completed))}
-            className="mt-4 text-xs text-gray-400 hover:text-red-400 transition-colors"
-          >
-            Clear completed
-          </button>
+        {/* Footer actions */}
+        {(hasCompleted || canUndo) && (
+          <div className="flex items-center justify-between mt-4">
+            {hasCompleted ? (
+              <button
+                onClick={clearCompleted}
+                className="text-xs text-gray-400 hover:text-red-400 transition-colors"
+              >
+                Clear completed
+              </button>
+            ) : <span />}
+
+            {canUndo && (
+              <button
+                onClick={undo}
+                className="flex items-center gap-1.5 text-xs font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+                Undo
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {/* History panel */}
+      {showHistory && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            onClick={() => setShowHistory(false)}
+          />
+
+          {/* Panel */}
+          <div className="relative bg-white w-full max-w-sm h-full shadow-2xl flex flex-col">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">Today's History</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowHistory(false)}
+                className="text-gray-300 hover:text-gray-500 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Panel body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {allTodayTasks.length === 0 ? (
+                <div className="text-center text-gray-300 py-16 text-sm">
+                  No tasks added today yet
+                </div>
+              ) : (
+                <ul className="space-y-3">
+                  {allTodayTasks.map((task) => {
+                    const isRemoved = removedTodayIds.has(task.id) && !activeTodayIds.has(task.id);
+                    const isCompleted = !isRemoved && task.completed;
+
+                    return (
+                      <li key={task.id} className="flex items-start gap-3 group">
+                        {/* Status dot */}
+                        <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                          isRemoved ? "bg-red-300" : isCompleted ? "bg-green-400" : "bg-indigo-400"
+                        }`} />
+
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm ${isRemoved ? "line-through text-gray-300" : "text-gray-700"}`}>
+                            {task.text}
+                          </p>
+                          <p className="text-xs text-gray-300 mt-0.5">Added at {formatTime(task.createdAt)}</p>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`text-xs mt-0.5 ${
+                            isRemoved ? "text-red-300" : isCompleted ? "text-green-400" : "text-indigo-300"
+                          }`}>
+                            {isRemoved ? "removed" : isCompleted ? "done" : "active"}
+                          </span>
+
+                          {/* Restore button — only on removed tasks */}
+                          {isRemoved && (
+                            <button
+                              onClick={() => restoreTask(task)}
+                              title="Restore task"
+                              className="text-gray-300 hover:text-indigo-500 transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {/* Panel footer legend */}
+            <div className="px-6 py-4 border-t border-gray-100 text-xs text-gray-300 flex gap-4">
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-indigo-400 inline-block" /> active</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /> done</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-300 inline-block" /> removed</span>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
