@@ -1,4 +1,4 @@
-# ✅ VibeCoding DeepStation — Todo App
+# ✅ Todo App
 
 A clean, minimal **To-Do List** web app built with **Next.js 15**, **TypeScript**, and **Tailwind CSS**. Tasks are tracked with timestamps showing when each was created. Database persistence coming soon.
 
