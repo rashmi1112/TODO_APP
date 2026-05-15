@@ -87,8 +87,8 @@ export default function Home() {
   const [quote, setQuote] = useState<{ text: string; author: string } | null>(null);
 
   // List management
-  const [lists, setLists] = useState<string[]>([DEFAULT_LIST]);
-  const [activeList, setActiveList] = useState(DEFAULT_LIST);
+  const [lists, setLists] = useState<string[]>([]);
+  const [activeList, setActiveList] = useState("");
   const [showNewList, setShowNewList] = useState(false);
   const [newListName, setNewListName] = useState("");
 
@@ -130,9 +130,9 @@ export default function Home() {
       if (!error && data) {
         const mapped = (data as TodoRow[]).map(rowToTodo);
         setTodos(mapped);
-        // Derive list names from existing todos
         const names = Array.from(new Set(mapped.map((t) => t.listName)));
-        setLists((prev) => Array.from(new Set([...prev, ...names])));
+        setLists(names);
+        if (names.length > 0) setActiveList(names[0]);
       }
       setLoading(false);
     };
@@ -197,6 +197,27 @@ export default function Home() {
       completed.forEach((t) => pushUndo(t));
       setTodos((prev) => prev.filter((t) => !completed.find((c) => c.id === t.id)));
     }
+  };
+
+  const clearAllTasks = async () => {
+    const ids = activeTodos.map((t) => t.id);
+    if (!ids.length) return;
+    const { error } = await supabase.from("todos").delete().in("id", ids);
+    if (!error) {
+      activeTodos.forEach((t) => pushUndo(t));
+      setTodos((prev) => prev.filter((t) => t.listName !== activeList));
+    }
+  };
+
+  const deleteList = async (listName: string) => {
+    const ids = todos.filter((t) => t.listName === listName).map((t) => t.id);
+    if (ids.length) await supabase.from("todos").delete().in("id", ids);
+    setLists((prev) => {
+      const remaining = prev.filter((l) => l !== listName);
+      if (activeList === listName) setActiveList(remaining[0] ?? "");
+      return remaining;
+    });
+    setTodos((prev) => prev.filter((t) => t.listName !== listName));
   };
 
   const undo = async () => {
@@ -347,21 +368,52 @@ export default function Home() {
           </div>
         )}
 
+        {/* No lists yet — prompt to create first */}
+        {!loading && lists.length === 0 && !showNewList && (
+          <div className="text-center py-16">
+            <p className="text-gray-400 text-sm mb-4">You don't have any lists yet.</p>
+            <button
+              onClick={() => setShowNewList(true)}
+              className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Create your first list
+            </button>
+          </div>
+        )}
+
         {/* List tabs */}
-        {lists.length > 1 && (
+        {lists.length > 0 && (
           <div className="flex gap-2 mb-5 flex-wrap">
             {lists.map((list) => (
-              <button
-                key={list}
-                onClick={() => setActiveList(list)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  activeList === list
-                    ? "bg-indigo-600 text-white"
-                    : "bg-indigo-50 text-indigo-400 hover:bg-indigo-100"
-                }`}
-              >
-                {displayName(list)}
-              </button>
+              <div key={list} className="flex items-center gap-0.5">
+                <button
+                  onClick={() => setActiveList(list)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    activeList === list
+                      ? "bg-indigo-600 text-white"
+                      : "bg-indigo-50 text-indigo-400 hover:bg-indigo-100"
+                  }`}
+                >
+                  {displayName(list)}
+                </button>
+                {/* Delete list button */}
+                {(
+                  <button
+                    onClick={() => deleteList(list)}
+                    title="Delete list"
+                    className={`w-4 h-4 flex items-center justify-center rounded-full transition-colors ${
+                      activeList === list ? "text-indigo-200 hover:text-white" : "text-gray-300 hover:text-red-400"
+                    }`}
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -374,76 +426,87 @@ export default function Home() {
             : `${remaining} of ${activeTodos.length} task${activeTodos.length !== 1 ? "s" : ""} remaining`}
         </p>
 
-        {/* Input */}
-        <div className="flex gap-2 mb-6">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={`Add to "${displayName(activeList)}"…`}
-            className="flex-1 border border-gray-200 rounded-lg px-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-          />
-          <button
-            onClick={addTodo}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Add
-          </button>
-        </div>
-
-        {/* Todo list */}
-        <ul className="space-y-2">
-          {loading && (
-            <li className="text-center text-gray-300 py-8 text-sm animate-pulse">Loading…</li>
-          )}
-          {!loading && activeTodos.length === 0 && (
-            <li className="text-center text-gray-300 py-8 text-sm">Your list is empty ✨</li>
-          )}
-          {activeTodos.map((todo) => (
-            <li
-              key={todo.id}
-              className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50 transition-colors group"
+        {/* Input + Todo list + Footer — only when a list is active */}
+        {activeList && (<>
+          {/* Input */}
+          <div className="flex gap-2 mb-6">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={`Add to "${displayName(activeList)}"…`}
+              className="flex-1 border border-gray-200 rounded-lg px-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <button
+              onClick={addTodo}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             >
-              <button
-                onClick={() => toggleTodo(todo.id)}
-                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                  todo.completed ? "bg-indigo-500 border-indigo-500" : "border-gray-300 hover:border-indigo-400"
-                }`}
-              >
-                {todo.completed && (
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </button>
-              <div className="flex-1 min-w-0">
-                <span className={`block text-sm ${todo.completed ? "line-through text-gray-300" : "text-gray-700"}`}>
-                  {todo.text}
-                </span>
-                <span className="text-xs text-gray-300">Added {formatDate(todo.createdAt)}</span>
-              </div>
-              <button
-                onClick={() => deleteTodo(todo.id)}
-                className="text-gray-200 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                aria-label="Delete task"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </li>
-          ))}
-        </ul>
+              Add
+            </button>
+          </div>
 
-        {/* Footer actions */}
-        {(hasCompleted || canUndo) && (
-          <div className="flex items-center justify-between mt-4">
-            {hasCompleted ? (
-              <button onClick={clearCompleted} className="text-xs text-gray-400 hover:text-red-400 transition-colors">
-                Clear completed
+          {/* Todo list */}
+          <ul className="space-y-2">
+            {loading && (
+              <li className="text-center text-gray-300 py-8 text-sm animate-pulse">Loading…</li>
+            )}
+            {!loading && activeTodos.length === 0 && (
+              <li className="text-center text-gray-300 py-8 text-sm">Your list is empty ✨</li>
+            )}
+            {activeTodos.map((todo) => (
+              <li
+                key={todo.id}
+                className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-indigo-100 hover:bg-indigo-50 transition-colors group"
+              >
+                <button
+                  onClick={() => toggleTodo(todo.id)}
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                    todo.completed ? "bg-indigo-500 border-indigo-500" : "border-gray-300 hover:border-indigo-400"
+                  }`}
+                >
+                  {todo.completed && (
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <span className={`block text-sm ${todo.completed ? "line-through text-gray-300" : "text-gray-700"}`}>
+                    {todo.text}
+                  </span>
+                  <span className="text-xs text-gray-300">Added {formatDate(todo.createdAt)}</span>
+                </div>
+                <button
+                  onClick={() => deleteTodo(todo.id)}
+                  className="text-gray-200 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                  aria-label="Delete task"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {/* Footer actions */}
+          <div className="flex items-center justify-between mt-5 pt-4 border-t border-gray-50">
+            <div className="flex items-center gap-3">
+              {hasCompleted && (
+                <button onClick={clearCompleted} className="text-xs text-gray-400 hover:text-red-400 transition-colors">
+                  Clear completed
+                </button>
+              )}
+              {activeTodos.length > 0 && (
+                <button onClick={clearAllTasks} className="text-xs text-gray-400 hover:text-red-400 transition-colors">
+                  Clear all tasks
+                </button>
+              )}
+              <button onClick={() => deleteList(activeList)} className="text-xs text-gray-400 hover:text-red-500 transition-colors font-medium">
+                Delete list
               </button>
-            ) : <span />}
+            </div>
             {canUndo && (
               <button onClick={undo} className="flex items-center gap-1.5 text-xs font-medium text-indigo-500 hover:text-indigo-700 transition-colors">
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -453,7 +516,7 @@ export default function Home() {
               </button>
             )}
           </div>
-        )}
+        </>)}
       </div>
 
       {/* History panel */}
