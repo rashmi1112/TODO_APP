@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
+
+const DOMAIN = "@things-todo.app";
+function usernameFromEmail(email: string) {
+  return email.replace(DOMAIN, "");
+}
 
 const QUOTES = [
   { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
@@ -68,6 +75,10 @@ const DEFAULT_LIST = "default";
 const MAX_UNDO = 10;
 
 export default function Home() {
+  const router = useRouter();
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [todos, setTodos] = useState<Todo[]>([]);
   const [input, setInput] = useState("");
   const [undoStack, setUndoStack] = useState<Todo[]>([]);
@@ -85,9 +96,31 @@ export default function Home() {
     setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
   }, []);
 
+  // ---------- auth ----------
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+      if (!session) router.push("/auth");
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (!session) router.push("/auth");
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
   // ---------- load from Supabase on mount ----------
 
   useEffect(() => {
+    if (!session) return;
     const fetchTodos = async () => {
       const { data, error } = await supabase
         .from("todos")
@@ -104,7 +137,7 @@ export default function Home() {
       setLoading(false);
     };
     fetchTodos();
-  }, []);
+  }, [session]);
 
   // ---------- list actions ----------
 
@@ -132,7 +165,7 @@ export default function Home() {
 
     const { data, error } = await supabase
       .from("todos")
-      .insert({ text: trimmed, completed: false, list_name: activeList })
+      .insert({ text: trimmed, completed: false, list_name: activeList, user_id: session?.user.id })
       .select()
       .single();
 
@@ -171,7 +204,7 @@ export default function Home() {
     const [latest, ...rest] = undoStack;
     const { data, error } = await supabase
       .from("todos")
-      .insert({ text: latest.text, completed: false, created_at: latest.createdAt.toISOString(), list_name: latest.listName })
+      .insert({ text: latest.text, completed: false, created_at: latest.createdAt.toISOString(), list_name: latest.listName, user_id: session?.user.id })
       .select()
       .single();
     if (!error && data) {
@@ -183,7 +216,7 @@ export default function Home() {
   const restoreTask = async (task: Todo) => {
     const { data, error } = await supabase
       .from("todos")
-      .insert({ text: task.text, completed: false, created_at: task.createdAt.toISOString(), list_name: task.listName })
+      .insert({ text: task.text, completed: false, created_at: task.createdAt.toISOString(), list_name: task.listName, user_id: session?.user.id })
       .select()
       .single();
     if (!error && data) {
@@ -219,6 +252,18 @@ export default function Home() {
 
   // ---------- render ----------
 
+  if (authLoading) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 flex items-center justify-center">
+        <p className="text-indigo-400 text-sm animate-pulse">Loading…</p>
+      </main>
+    );
+  }
+
+  if (!session) return null;
+
+  const username = usernameFromEmail(session.user.email ?? "");
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 flex flex-col items-center justify-center p-4 gap-6">
 
@@ -235,7 +280,10 @@ export default function Home() {
 
         {/* Header row */}
         <div className="flex items-center justify-between mb-5">
-          <h1 className="text-3xl font-bold text-indigo-600">Things To-do</h1>
+          <div>
+            <h1 className="text-3xl font-bold text-indigo-600">Things To-do</h1>
+            <p className="text-xs text-gray-400 mt-0.5">Hey, <span className="font-medium text-indigo-400">{username}</span> 👋</p>
+          </div>
           <div className="flex items-center gap-2">
             {/* New List button */}
             <button
@@ -256,6 +304,16 @@ export default function Home() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               Today's History
+            </button>
+            {/* Log out — far right */}
+            <button
+              onClick={signOut}
+              className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-red-400 transition-colors px-3 py-1.5 rounded-lg hover:bg-red-50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Log out
             </button>
           </div>
         </div>
